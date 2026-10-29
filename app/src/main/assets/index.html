@@ -42,6 +42,7 @@ button.main:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 button.main:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .touch #bThrow { background: #3a8f4f; }
 .touch #bPause { width: 46px; height: 46px; font-size: .85rem; align-self: flex-start; margin-top: 8px; }
+.touch #bDash { background: #c9791f; }
 </style>
 </head>
 <body>
@@ -53,7 +54,7 @@ button.main:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 </div>
 <div class="touch" id="touch">
   <div class="grp"><button id="bL" aria-label="Esquerda">&#9664;</button><button id="bR" aria-label="Direita">&#9654;</button></div>
-  <div class="grp"><button id="bRun" aria-label="Correr">&raquo;</button><button id="bThrow" aria-label="Arremessar legume">B</button><button id="bJump" class="jump" aria-label="Pular">A</button></div>
+  <div class="grp"><button id="bRun" aria-label="Correr">&raquo;</button><button id="bThrow" aria-label="Arremessar legume">B</button><button id="bDash" aria-label="Dash">X</button><button id="bJump" class="jump" aria-label="Pular">A</button></div>
 </div>
 <script>(function () {
 'use strict';
@@ -124,6 +125,7 @@ var sfx = {
   die: function () { S(function (t) { voice(sfxGain, t, 440, 0.8, 'triangle', 0.18, 0.22); voice(sfxGain, t + 0.1, 330, 0.7, 'square', 0.06, 0.3); }); },
   tick: function () { S(function (t) { voice(sfxGain, t, 1250, 0.05, 'sine', 0.1); }); },
   click: function () { S(function (t) { voice(sfxGain, t, 700, 0.07, 'square', 0.07, 1.6); }); },
+  dash: function () { S(function (t) { noise(sfxGain, t, 0.16, 0.18, 1800, 'highpass'); voice(sfxGain, t, 300, 0.14, 'sawtooth', 0.07, 2.4); }); },
   throwv: function () { S(function (t) { voice(sfxGain, t, 520, 0.09, 'triangle', 0.11, 1.8); noise(sfxGain, t, 0.05, 0.06, 2500, 'highpass'); }); },
   shoot: function () { S(function (t) { voice(sfxGain, t, 600, 0.12, 'sine', 0.08, 0.5); }); }
 };
@@ -495,7 +497,7 @@ try { best = parseInt(localStorage.getItem('correzeca_best') || '0', 10) || 0; }
 function fmtTime(sec) { sec = Math.max(0, Math.floor(sec)); var m = Math.floor(sec / 60), s = sec % 60; return m + ':' + (s < 10 ? '0' : '') + s; }
 
 function newPlayer() {
-  return { x: 64, y: 8 * TS + 2, w: 20, h: 30, vx: 0, vy: 0, dir: 1, ground: false, wasGround: false, coyote: 0, hearts: 3, inv: 0, anim: 0, dead: false, big: false, pow: false, cd: 0, star: 0, sx: 1, sy: 1 };
+  return { x: 64, y: 8 * TS + 2, w: 20, h: 30, vx: 0, vy: 0, dir: 1, ground: false, wasGround: false, coyote: 0, hearts: 3, inv: 0, anim: 0, dead: false, big: false, pow: false, cd: 0, dash: 0, dcd: 0, adUsed: false, star: 0, sx: 1, sy: 1 };
 }
 function loadLevel(i, keepBig, keepPow) {
   levelIdx = i; L = makeLevel(LEVELS[i], i); P = newPlayer(); L.veg = [];
@@ -579,7 +581,7 @@ function startEnding() {
 }
 
 /* ---------- Entrada ---------- */
-var map = { ArrowLeft: 'L', a: 'L', A: 'L', ArrowRight: 'R', d: 'R', D: 'R', ArrowUp: 'J', w: 'J', W: 'J', ' ': 'J', Shift: 'B', z: 'B', Z: 'B', b: 'T', B: 'T' };
+var map = { ArrowLeft: 'L', a: 'L', A: 'L', ArrowRight: 'R', d: 'R', D: 'R', ArrowUp: 'J', w: 'J', W: 'J', ' ': 'J', Shift: 'B', z: 'B', Z: 'B', b: 'T', B: 'T', x: 'X', X: 'X' };
 window.addEventListener('keydown', function (e) {
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { togglePause(); return; }
   if (e.key === 'm' || e.key === 'M') { setMuted(!muted); return; }
@@ -588,6 +590,7 @@ window.addEventListener('keydown', function (e) {
     if (e.key === ' ' || e.key.indexOf('Arrow') === 0) e.preventDefault();
     if (k === 'J' && !keys.J) { jumpBuf = 7; initAudio(); }
     if (k === 'T' && !keys.T) throwVeg();
+    if (k === 'X' && !keys.X) doDash();
     keys[k] = true;
   }
   if ((e.key === 'Enter') && !overlay.hidden) { var b = overlay.querySelector('button'); if (b) b.click(); }
@@ -596,13 +599,13 @@ window.addEventListener('keyup', function (e) { var k = map[e.key]; if (k) keys[
 window.addEventListener('blur', function () { keys = {}; if (state === 'play') togglePause(); });
 function bindTouch(id, k) {
   var el = document.getElementById(id); if (!el) return;
-  function on(e) { e.preventDefault(); if (k === 'J' && !keys.J) { jumpBuf = 7; initAudio(); } if (k === 'T' && !keys.T) throwVeg(); keys[k] = true; el.classList.add('on'); }
+  function on(e) { e.preventDefault(); if (k === 'J' && !keys.J) { jumpBuf = 7; initAudio(); } if (k === 'T' && !keys.T) throwVeg(); if (k === 'X' && !keys.X) doDash(); keys[k] = true; el.classList.add('on'); }
   function off(e) { e.preventDefault(); keys[k] = false; el.classList.remove('on'); }
   el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off);
   el.addEventListener('pointerleave', off); el.addEventListener('pointercancel', off);
   el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 }
-bindTouch('bL', 'L'); bindTouch('bR', 'R'); bindTouch('bRun', 'B'); bindTouch('bJump', 'J'); bindTouch('bThrow', 'T');
+bindTouch('bL', 'L'); bindTouch('bR', 'R'); bindTouch('bRun', 'B'); bindTouch('bJump', 'J'); bindTouch('bThrow', 'T'); bindTouch('bDash', 'X');
 (function () {
   var el = document.getElementById('bPause'); if (!el) return;
   el.addEventListener('pointerdown', function (e) { e.preventDefault(); initAudio(); togglePause(); });
@@ -623,7 +626,7 @@ function pauseScreen(saved) {
   more(muted ? 'Ligar som' : 'Desligar som', function () { setMuted(!muted); pauseScreen(saved); });
   more('Menu principal', function () { overlay.hidden = true; menu(); });
   var ctl = document.createElement('p'); ctl.className = 'small';
-  ctl.textContent = 'Setas/A D andar · Espaço pular · Shift correr · B arremessar legume · P pausa';
+  ctl.textContent = 'Setas/A D andar · Espaço pular · Shift correr · X dash · B arremessar legume · P pausa';
   overlay.appendChild(ctl);
 }
 function togglePause() {
@@ -705,7 +708,7 @@ function bump(tx, ty) {
   }
 }
 function hurt() {
-  if (P.inv > 0 || P.dead || P.star > 0) return;
+  if (P.inv > 0 || P.dead || P.star > 0 || P.dash > 0) return;
   if (P.pow) { P.pow = false; P.inv = 100; P.vy = -5; sfx.hurt(); popup(P.x - 14, P.y - 8, 'PERDEU A CESTA'); return; }
   if (P.big) { shrink(); P.inv = 100; P.vy = -5; sfx.hurt(); return; }
   P.hearts--; P.inv = 75; sfx.hurt();
@@ -752,6 +755,12 @@ function updatePlayer() {
   }
   if (!keys.J && P.vy < -4) P.vy = -4;
   P.vy = Math.min(P.vy + 0.58, 12);
+  if (P.dcd > 0) P.dcd--;
+  if (P.ground) P.adUsed = false;
+  if (P.dash > 0) {
+    P.dash--; P.vx = P.dir * 9; P.vy = 0; P.sx = 1.25; P.sy = 0.88;
+    particles.push({ x: P.x + P.w / 2 - P.dir * 6, y: P.y + 6 + Math.random() * P.h * 0.7, vx: -P.dir * 1.2, vy: 0, life: 12, c: 'rgba(255,248,190,.85)', s: 5, max: 12, soft: true });
+  }
 
   P.x += P.vx;
   var x0 = Math.floor(P.x / TS), x1 = Math.floor((P.x + P.w - 0.01) / TS), y0 = Math.floor(P.y / TS), y1 = Math.floor((P.y + P.h - 0.01) / TS), tx, ty;
@@ -898,6 +907,11 @@ function updateBoss() {
 var VEG = [
   { c: '#ff8a1f', t: 'cenoura' }, { c: '#e63946', t: 'tomate' }, { c: '#ffd400', t: 'milho' }, { c: '#7a3fa0', t: 'berinjela' }
 ];
+function doDash() {
+  if (state !== 'play' || !P || P.dead || P.dcd > 0 || P.dash > 0) return;
+  if (!P.ground) { if (P.adUsed) return; P.adUsed = true; }
+  P.dash = 9; P.dcd = 40; P.vy = 0; sfx.dash(); dust(P.x + P.w / 2 - P.dir * 8, P.y + P.h, 4);
+}
 function throwVeg() {
   if (state !== 'play' || !P || P.dead || !P.pow || P.cd > 0) return;
   if (L.veg.length >= 3) return;
